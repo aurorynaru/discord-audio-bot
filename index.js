@@ -6,7 +6,9 @@ const Discord = require('discord.js')
 const REST = Discord.REST
 const Routes = Discord.Routes
 const player = require('./player')
-const songQueue = require('./constant.js')
+let isReady = false
+const youtubeRegExp =
+    /^(https?:\/\/)?(www\.)?youtube\.com\/watch\?v=[\w-]+(&.*)?|^https?:\/\/youtu.be\/[\w-]+$/
 const client = new Discord.Client({
     intents: [
         ...Object.keys(Discord.IntentsBitField.Flags).filter(
@@ -37,6 +39,10 @@ client.on('ready', async () => {
                         .setDescription('song')
                         .setRequired(true)
                 ),
+            new Discord.SlashCommandBuilder()
+                .setName('skip')
+                .setDescription('skips the current song playing'),
+
             new Discord.SlashCommandBuilder()
                 .setName('volume')
                 .setDescription('Adjust the volume of the music playback')
@@ -72,11 +78,15 @@ client.on('ready', async () => {
     })
 
     console.log('✅ Slash Commands Loaded Successfully')
+    isReady = true
 })
+let connection = null
+let subscriber = null
+let audioStatus
+let songQueue = []
 
 const playSongFn = async (i, song) => {
     try {
-        songQueue.shift()
         const { result } = await player.play(song)
         console.log(`Now playing ${result[0].title}`)
         const songName = result[0].title
@@ -138,62 +148,90 @@ const playSongFn = async (i, song) => {
     }
 }
 
+const joinVC = async (i) => {
+    const voice = i.member?.voice
+
+    if (!voice.channel.joinable) {
+        await i.editReply({
+            embeds: [
+                {
+                    title: 'Error',
+                    description: "I can't join your voice channel!"
+                }
+            ]
+        })
+        return
+    }
+
+    try {
+        if (connection === null) {
+            const res = await player.joinChannel(voice.channel)
+            connection = res.connection
+            subscriber = res.subscriber
+            subscriber.player.on('stateChange', (oldState, newState) => {
+                if (newState.hasOwnProperty('status')) {
+                    audioStatus = newState.status
+                }
+            })
+        }
+    } catch (error) {
+        console.error('Error while joining the voice channel:', error)
+    }
+    return voice
+}
+
+const checkVC = async (i, voice) => {
+    const myVoiceChannel = player.myVc()
+
+    if (myVoiceChannel == null) {
+        await i.editReply({
+            embeds: [
+                {
+                    title: 'Error',
+                    description:
+                        "Either i am in a voice channel but just restarted, or i'm not in a voice channel, in any case, please run `/join`"
+                }
+            ]
+        })
+        return
+    }
+
+    if (voice.channelId != myVoiceChannel) {
+        await i.editReply({
+            embeds: [
+                {
+                    title: 'Error',
+                    description: 'You are not in the same voice channel as me!'
+                }
+            ]
+        })
+        return
+    }
+}
+
+setInterval(() => {
+    if (isReady) {
+        if (audioStatus === 'idle') {
+            songQueue.shift()
+            if (songQueue.length > 0) {
+                playSongFn(songQueue[0].i, songQueue[0].song)
+            }
+        }
+
+        console.log(songQueue.length)
+    }
+}, 1000)
+
 client.on('interactionCreate', async (i) => {
     await i.deferReply()
     if (i.isCommand()) {
         //THE PLAY COMMAND
         if (i.commandName == 'play') {
-            const voice = i.member?.voice
+            const voice = await joinVC(i)
+            await checkVC(i, voice)
 
-            if (!voice.channel.joinable) {
-                await i.editReply({
-                    embeds: [
-                        {
-                            title: 'Error',
-                            description: "I can't join your voice channel!"
-                        }
-                    ]
-                })
-                return
-            }
-
-            try {
-                await player.joinChannel(voice.channel)
-            } catch (error) {
-                console.error('Error while joining the voice channel:', error)
-            }
-
-            const myVoiceChannel = player.myVc()
-
-            if (myVoiceChannel == null) {
-                await i.editReply({
-                    embeds: [
-                        {
-                            title: 'Error',
-                            description:
-                                "Either i am in a voice channel but just restarted, or i'm not in a voice channel, in any case, please run `/join`"
-                        }
-                    ]
-                })
-                return
-            }
-
-            if (voice.channelId != myVoiceChannel) {
-                await i.editReply({
-                    embeds: [
-                        {
-                            title: 'Error',
-                            description:
-                                'You are not in the same voice channel as me!'
-                        }
-                    ]
-                })
-                return
-            }
-
-            const result = require('./player.js')
             const song = i.options.getString('song')
-            songQueue.unshift({ i, song })
+            songQueue.push({ i, song })
             playSongFn(songQueue[0].i, songQueue[0].song)
 
             //queue songs
@@ -209,11 +247,14 @@ client.on('interactionCreate', async (i) => {
                 })
             } else {
                 try {
+                    const voice = await joinVC(i)
+                    await checkVC(i, voice)
+
                     const song = i.options.getString('song')
                     const { result } = await player.searchDetails(song)
-
-                    songQueue.unshift({ i, song })
-                    console.log(`added to queue ${result[0].title}`)
+                    console.log(result)
+                    songQueue.push({ i, song })
+                    console.log(`added to queue ${result.title}`)
                     const songName = result[0].title
                     const duration = result[0].durationRaw
                     const url = result[0].url
@@ -222,11 +263,7 @@ client.on('interactionCreate', async (i) => {
                     const artistUrl = result[0].channel.url
                     const thumbnail = result[0].thumbnails[0].url
                     const icon = result[0].channel.icons[0].url
-                    const index =
-                        songQueue.findIndex((songObj) => {
-                            console.log(songObj)
-                            return songObj.song === result[0].songName
-                        }) + 1
+                    const index = songQueue.length
 
                     await i.editReply({
                         embeds: [
@@ -268,7 +305,7 @@ client.on('interactionCreate', async (i) => {
                     await i.editReply({
                         embeds: [
                             {
-                                title: `${error.error}`,
+                                title: `${error}`,
                                 description: 'f'
                             }
                         ]
@@ -276,10 +313,23 @@ client.on('interactionCreate', async (i) => {
                 }
             }
             //THE LEAVE COMMAND
+        } else if (i.commandName == 'skip') {
+            await player.skip()
+            songQueue.shift()
+            if (songQueue.length > 0) {
+                playSongFn(songQueue[0].i, songQueue[0].song)
+            }
+            await i.editReply({
+                embeds: [
+                    {
+                        title: `skipped current song`
+                    }
+                ]
+            })
         } else if (i.commandName == 'leave') {
+            songQueue.length = 0
             await player.leave()
-            elapsedTime = null
-            convertedDuration = 0
+            connection = null
 
             await i.editReply({
                 embeds: [

@@ -1,2 +1,2 @@
-const songQueue = ['yo']
-module.exports = songQueue
+const isIdle = false
+module.exports = isIdle

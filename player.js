@@ -10,42 +10,44 @@ const { GuildChannel } = require('discord.js')
 
 let isPlaying = false
 const player = require('play-dl')
-const songQueue = require('./constant.js')
 
 let connection
 
 let subscriber
+const youtubeRegExp =
+    /^(https?:\/\/)?(www\.)?youtube\.com\/watch\?v=[\w-]+(&.*)?|^https?:\/\/youtu.be\/[\w-]+$/
 
 const getVideoInfo = async (song) => {
-    const youtubeRegExp =
-        /^(https?:\/\/)?(www\.)?youtube\.com\/watch\?v=[\w-]+(&.*)?|^https?:\/\/youtu.be\/[\w-]+$/
+    try {
+        if (youtubeRegExp.test(song)) {
+            const video = await player.video_basic_info(song)
 
-    if (youtubeRegExp.test(song)) {
-        const video = await player.video_basic_info(song)
-
-        if (!video || video?.length == 0) {
-            throw new Error('No Music Found/invalid url')
+            if (!video || video?.length == 0) {
+                throw new Error('No Music Found/invalid url')
+            } else {
+                return { result: [video.video_details] }
+            }
         } else {
-            return { result: [video.video_details] }
+            let searches = []
+
+            searches.push(
+                player
+                    .search(song, {
+                        fuzzy: true
+                    })
+                    .catch(() => null)
+            )
+
+            const result = (await Promise.all(searches)).find((x) => x != null)
+
+            if (!result || result?.length == 0) {
+                throw new Error('No Music Found')
+            } else {
+                return result
+            }
         }
-    } else {
-        let searches = []
-
-        searches.push(
-            player
-                .search(song, {
-                    fuzzy: true
-                })
-                .catch(() => null)
-        )
-
-        const result = (await Promise.all(searches)).find((x) => x != null)
-
-        if (!result || result?.length == 0) {
-            throw new Error('No Music Found')
-        } else {
-            return result
-        }
+    } catch (error) {
+        throw new Error(error)
     }
 }
 
@@ -55,7 +57,7 @@ module.exports = {
         if (connection != null) {
             throw new Error('Already connected to a voice channel')
         }
-        const audioPlayer = createAudioPlayer()
+
         connection = joinVoiceChannel({
             guildId: channel.guildId,
             channelId: channel.id,
@@ -63,16 +65,19 @@ module.exports = {
             selfDeaf: false,
             selfMute: false
         })
-        const player = connection.subscribe(audioPlayer)
+
+        const player = connection.subscribe(createAudioPlayer())
         subscriber = player
 
-        audioPlayer.on(AudioPlayerStatus.Playing, () => {
-            console.log('The audio player has started playing!')
-        })
+        // subscriber.player.on('stateChange', (oldState, newState) => {
+        //     if (newState.hasOwnProperty('status')) {
+        //         audioStatus = newState.status
+        //     }
 
-        audioPlayer.on(AudioPlayerStatus.Idle, () => {
-            console.log(songQueue)
-        })
+        //     console.log(audioStatus)
+        // })
+
+        return { connection, subscriber }
     },
     //LEAVE
     leave: async () => {
@@ -80,15 +85,19 @@ module.exports = {
         connection = null
     },
     searchDetails: async (song) => {
-        return await getVideoInfo(song)
+        if (youtubeRegExp.test(song)) {
+            const video = await getVideoInfo(song)
+            return video
+        } else {
+            const result = await getVideoInfo(song)
+
+            return { result }
+        }
     },
     myVc: () => connection?.joinConfig.channelId,
     //PLAY
 
     play: async (song) => {
-        const youtubeRegExp =
-            /^(https?:\/\/)?(www\.)?youtube\.com\/watch\?v=[\w-]+(&.*)?|^https?:\/\/youtu.be\/[\w-]+$/
-
         if (youtubeRegExp.test(song)) {
             const video = await getVideoInfo(song)
 
@@ -106,7 +115,7 @@ module.exports = {
                 //inlineVolume: true
             })
 
-            //resource.volume?.setVolume(2)
+            //resource.volume?.setVolume(0.7)
 
             subscriber.player.play(resource)
 
@@ -127,7 +136,7 @@ module.exports = {
                 //inlineVolume: true
             })
 
-            //resource.volume?.setVolume(2)
+            //resource.volume?.setVolume(.9)
 
             subscriber.player.play(resource)
 
@@ -135,6 +144,17 @@ module.exports = {
         }
     },
     //PAUSE
+    skip: () => {
+        if (
+            subscriber &&
+            subscriber.player &&
+            subscriber.player.state.status === AudioPlayerStatus.Playing
+        ) {
+            subscriber.player.stop()
+
+            isPlaying = false
+        }
+    },
     pause: () => {
         if (
             subscriber &&
