@@ -96,7 +96,9 @@ module.exports = {
     },
     myVc: () => connection?.joinConfig.channelId,
     //PLAY
-
+    playlist: async (url) => {
+        const playlist = await player.playlist_info(url, { incomplete: true })
+    },
     play: async (song) => {
         if (youtubeRegExp.test(song)) {
             const video = await getVideoInfo(song)

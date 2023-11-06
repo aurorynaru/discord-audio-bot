@@ -7,8 +7,7 @@ const REST = Discord.REST
 const Routes = Discord.Routes
 const player = require('./player')
 let isReady = false
-const youtubeRegExp =
-    /^(https?:\/\/)?(www\.)?youtube\.com\/watch\?v=[\w-]+(&.*)?|^https?:\/\/youtu.be\/[\w-]+$/
+
 const client = new Discord.Client({
     intents: [
         ...Object.keys(Discord.IntentsBitField.Flags).filter(
@@ -37,6 +36,15 @@ client.on('ready', async () => {
                     option
                         .setName('song')
                         .setDescription('song')
+                        .setRequired(true)
+                ),
+            new Discord.SlashCommandBuilder()
+                .setName('playlist')
+                .setDescription('Plays a playlist ')
+                .addStringOption((option) =>
+                    option
+                        .setName('url')
+                        .setDescription('playlist url')
                         .setRequired(true)
                 ),
             new Discord.SlashCommandBuilder()
@@ -80,6 +88,7 @@ client.on('ready', async () => {
     console.log('✅ Slash Commands Loaded Successfully')
     isReady = true
 })
+let isSkipping = false
 let connection = null
 let subscriber = null
 let audioStatus
@@ -208,17 +217,16 @@ const checkVC = async (i, voice) => {
         return
     }
 }
-
 setInterval(() => {
     if (isReady) {
-        if (audioStatus === 'idle') {
-            songQueue.shift()
-            if (songQueue.length > 0) {
-                playSongFn(songQueue[0].i, songQueue[0].song)
+        if (!isSkipping) {
+            if (audioStatus === 'idle') {
+                if (songQueue.length > 0) {
+                    songQueue.shift()
+                    playSongFn(songQueue[0].i, songQueue[0].song)
+                }
             }
         }
-
-        console.log(songQueue.length)
     }
 }, 1000)
 
@@ -235,26 +243,28 @@ client.on('interactionCreate', async (i) => {
             playSongFn(songQueue[0].i, songQueue[0].song)
 
             //queue songs
+        } else if (i.commandName == 'playlist') {
+            const url = i.options.getString('url')
+            await player.playlist(url)
+            await i.editReply({
+                embeds: [
+                    {
+                        title: `test`,
+                        description: 'bruh'
+                    }
+                ]
+            })
         } else if (i.commandName == 'queue') {
-            if (songQueue.length < 1) {
-                await i.editReply({
-                    embeds: [
-                        {
-                            title: 'play 1 song',
-                            description: 'bruh'
-                        }
-                    ]
-                })
-            } else {
+            if (audioStatus === 'playing' || songQueue.length > 0) {
                 try {
                     const voice = await joinVC(i)
                     await checkVC(i, voice)
 
                     const song = i.options.getString('song')
                     const { result } = await player.searchDetails(song)
-                    console.log(result)
+
                     songQueue.push({ i, song })
-                    console.log(`added to queue ${result.title}`)
+                    console.log(`added to queue ${result[0].title}`)
                     const songName = result[0].title
                     const duration = result[0].durationRaw
                     const url = result[0].url
@@ -311,14 +321,25 @@ client.on('interactionCreate', async (i) => {
                         ]
                     })
                 }
+            } else {
+                await i.editReply({
+                    embeds: [
+                        {
+                            title: 'play 1 song',
+                            description: 'bruh'
+                        }
+                    ]
+                })
             }
-            //THE LEAVE COMMAND
+            //skip
         } else if (i.commandName == 'skip') {
+            isSkipping = true
             await player.skip()
             songQueue.shift()
             if (songQueue.length > 0) {
                 playSongFn(songQueue[0].i, songQueue[0].song)
             }
+            isSkipping = false
             await i.editReply({
                 embeds: [
                     {
@@ -523,7 +544,6 @@ client.on('interactionCreate', async (i) => {
                     }
                 ]
             })
-            await i.user.send(':p')
         }
     }
 })
