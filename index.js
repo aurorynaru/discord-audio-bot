@@ -336,9 +336,6 @@ client.on('interactionCreate', async (i) => {
             isSkipping = true
             await player.skip()
             songQueue.shift()
-            if (songQueue.length > 0) {
-                playSongFn(songQueue[0].i, songQueue[0].song)
-            }
             isSkipping = false
             await i.editReply({
                 embeds: [
