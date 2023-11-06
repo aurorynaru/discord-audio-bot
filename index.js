@@ -91,13 +91,14 @@ client.on('ready', async () => {
 let isSkipping = false
 let connection = null
 let subscriber = null
-let audioStatus
+let audioStatus = 'idle'
 let songQueue = []
 
 const playSongFn = async (i, song) => {
     try {
         const { result } = await player.play(song)
         console.log(`Now playing ${result[0].title}`)
+        isSkipping = false
         const songName = result[0].title
         const duration = result[0].durationRaw
         const url = result[0].url
@@ -222,13 +223,13 @@ setInterval(() => {
         if (!isSkipping) {
             if (audioStatus === 'idle') {
                 if (songQueue.length > 0) {
-                    songQueue.shift()
                     playSongFn(songQueue[0].i, songQueue[0].song)
+                    songQueue.shift()
                 }
             }
         }
     }
-}, 1000)
+}, 1750)
 
 client.on('interactionCreate', async (i) => {
     await i.deferReply()
@@ -239,7 +240,8 @@ client.on('interactionCreate', async (i) => {
             await checkVC(i, voice)
 
             const song = i.options.getString('song')
-            songQueue.push({ i, song })
+            songQueue.unshift({ i, song })
+            isSkipping = true
             playSongFn(songQueue[0].i, songQueue[0].song)
 
             //queue songs
