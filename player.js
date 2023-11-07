@@ -69,14 +69,6 @@ module.exports = {
         const player = connection.subscribe(createAudioPlayer())
         subscriber = player
 
-        // subscriber.player.on('stateChange', (oldState, newState) => {
-        //     if (newState.hasOwnProperty('status')) {
-        //         audioStatus = newState.status
-        //     }
-
-        //     console.log(audioStatus)
-        // })
-
         return { connection, subscriber }
     },
     //LEAVE
@@ -154,7 +146,7 @@ module.exports = {
         ) {
             subscriber.player.stop()
 
-            isPlaying = false
+            subscriber.player.isPlaying = false
         }
     },
     pause: () => {

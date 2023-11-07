@@ -96,7 +96,11 @@ let songQueue = []
 
 const playSongFn = async (i, song) => {
     try {
+        const voice = await joinVC(i)
+        await checkVC(i, voice)
         const { result } = await player.play(song)
+        songQueue.shift()
+        audioStatus = 'playing'
         console.log(`Now playing ${result[0].title}`)
         isSkipping = false
         const songName = result[0].title
@@ -223,22 +227,19 @@ setInterval(() => {
         if (!isSkipping) {
             if (audioStatus === 'idle') {
                 if (songQueue.length > 0) {
+                    audioStatus = 'playing'
                     playSongFn(songQueue[0].i, songQueue[0].song)
-                    songQueue.shift()
                 }
             }
         }
     }
-}, 1750)
+}, 1500)
 
 client.on('interactionCreate', async (i) => {
     await i.deferReply()
     if (i.isCommand()) {
         //THE PLAY COMMAND
         if (i.commandName == 'play') {
-            const voice = await joinVC(i)
-            await checkVC(i, voice)
-
             const song = i.options.getString('song')
             songQueue.unshift({ i, song })
             isSkipping = true
@@ -259,17 +260,19 @@ client.on('interactionCreate', async (i) => {
         } else if (i.commandName == 'queue') {
             if (audioStatus === 'playing' || songQueue.length > 0) {
                 try {
-                    const voice = await joinVC(i)
-                    await checkVC(i, voice)
+                    // const voice = await joinVC(i)
+                    // await checkVC(i, voice)
 
                     const song = i.options.getString('song')
                     const { result } = await player.searchDetails(song)
 
-                    songQueue.push({ i, song })
+                    const url = result[0].url
+
+                    console.log(url)
+                    songQueue.push({ i, song: url })
                     console.log(`added to queue ${result[0].title}`)
                     const songName = result[0].title
                     const duration = result[0].durationRaw
-                    const url = result[0].url
                     const description = result[0].description
                     const artist = result[0].channel
                     const artistUrl = result[0].channel.url
@@ -337,8 +340,6 @@ client.on('interactionCreate', async (i) => {
         } else if (i.commandName == 'skip') {
             isSkipping = true
             await player.skip()
-            songQueue.shift()
-            isSkipping = false
             await i.editReply({
                 embeds: [
                     {
@@ -346,10 +347,13 @@ client.on('interactionCreate', async (i) => {
                     }
                 ]
             })
+            isSkipping = false
+            // leave
         } else if (i.commandName == 'leave') {
             songQueue.length = 0
             await player.leave()
             connection = null
+            subscriber = null
 
             await i.editReply({
                 embeds: [
