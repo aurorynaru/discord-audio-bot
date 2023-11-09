@@ -71,17 +71,7 @@ client.on('ready', async () => {
                 .setDescription('Resume the music playback'),
             new Discord.SlashCommandBuilder()
                 .setName('help')
-                .setDescription('Here are all of my commands!'),
-
-            new Discord.SlashCommandBuilder()
-                .setName('queue')
-                .setDescription('queues a song')
-                .addStringOption((option) =>
-                    option
-                        .setName('song')
-                        .setDescription('The song to search for')
-                        .setRequired(true)
-                )
+                .setDescription('Here are all of my commands!')
         ].map((k) => k.toJSON())
     })
 
@@ -91,13 +81,77 @@ client.on('ready', async () => {
 let isSkipping = false
 let connection = null
 let subscriber = null
-let audioStatus = 'idle'
+let voice = null
+let myVoiceChannel = null
+let audioStatus = 'no vc'
 let songQueue = []
+let count = 0
+
+const joinVC = async (i) => {
+    voice = i.member?.voice
+    console.log('voice', voice)
+
+    if (!voice.channel.joinable) {
+        await i.editReply({
+            embeds: [
+                {
+                    title: 'Error',
+                    description: "I can't join your voice channel!"
+                }
+            ]
+        })
+        return
+    }
+
+    try {
+        if (connection === null) {
+            const res = await player.joinChannel(voice.channel)
+            connection = res.connection
+            subscriber = res.subscriber
+            subscriber.player.on('stateChange', (oldState, newState) => {
+                if (newState.hasOwnProperty('status')) {
+                    audioStatus = newState.status
+                }
+            })
+        }
+    } catch (error) {
+        console.error('Error while joining the voice channel:', error)
+    }
+}
+
+const checkVC = async (i) => {
+    myVoiceChannel = player.myVc()
+    console.log('myVoiceChannel', myVoiceChannel)
+    if (myVoiceChannel == null) {
+        await i.editReply({
+            embeds: [
+                {
+                    title: 'Error',
+                    description:
+                        "Either i am in a voice channel but just restarted, or i'm not in a voice channel, in any case,"
+                }
+            ]
+        })
+        return
+    }
+
+    if (voice.channelId != myVoiceChannel) {
+        await i.editReply({
+            embeds: [
+                {
+                    title: 'Error',
+                    description: 'You are not in the same voice channel as me!'
+                }
+            ]
+        })
+        return
+    }
+}
 
 const playSongFn = async (i, song) => {
     try {
-        const voice = await joinVC(i)
-        await checkVC(i, voice)
+        await joinVC(i)
+        await checkVC(i)
         const { result } = await player.play(song)
         songQueue.shift()
         audioStatus = 'playing'
@@ -162,65 +216,29 @@ const playSongFn = async (i, song) => {
     }
 }
 
-const joinVC = async (i) => {
-    const voice = i.member?.voice
+const leaveFn = async (i) => {
+    songQueue.length = 0
+    await player.leave()
 
-    if (!voice.channel.joinable) {
-        await i.editReply({
-            embeds: [
-                {
-                    title: 'Error',
-                    description: "I can't join your voice channel!"
-                }
-            ]
-        })
-        return
-    }
+    audioStatus = 'no vc'
 
-    try {
-        if (connection === null) {
-            const res = await player.joinChannel(voice.channel)
-            connection = res.connection
-            subscriber = res.subscriber
-            subscriber.player.on('stateChange', (oldState, newState) => {
-                if (newState.hasOwnProperty('status')) {
-                    audioStatus = newState.status
-                }
-            })
-        }
-    } catch (error) {
-        console.error('Error while joining the voice channel:', error)
-    }
-    return voice
-}
+    isSkipping = false
+    connection = null
+    subscriber = null
+    voice = null
+    myVoiceChannel = null
+    audioStatus = 'no vc'
+    songQueue = []
+    count = 0
 
-const checkVC = async (i, voice) => {
-    const myVoiceChannel = player.myVc()
-
-    if (myVoiceChannel == null) {
-        await i.editReply({
-            embeds: [
-                {
-                    title: 'Error',
-                    description:
-                        "Either i am in a voice channel but just restarted, or i'm not in a voice channel, in any case, please run `/join`"
-                }
-            ]
-        })
-        return
-    }
-
-    if (voice.channelId != myVoiceChannel) {
-        await i.editReply({
-            embeds: [
-                {
-                    title: 'Error',
-                    description: 'You are not in the same voice channel as me!'
-                }
-            ]
-        })
-        return
-    }
+    await i.editReply({
+        embeds: [
+            {
+                title: 'Leaving...',
+                description: 'Left the voice channel...'
+            }
+        ]
+    })
 }
 setInterval(() => {
     if (isReady) {
@@ -229,6 +247,9 @@ setInterval(() => {
                 if (songQueue.length > 0) {
                     audioStatus = 'playing'
                     playSongFn(songQueue[0].i, songQueue[0].song)
+                }
+                count++
+                if (count === 300000) {
                 }
             }
         }
@@ -240,24 +261,6 @@ client.on('interactionCreate', async (i) => {
     if (i.isCommand()) {
         //THE PLAY COMMAND
         if (i.commandName == 'play') {
-            const song = i.options.getString('song')
-            songQueue.unshift({ i, song })
-            isSkipping = true
-            playSongFn(songQueue[0].i, songQueue[0].song)
-
-            //queue songs
-        } else if (i.commandName == 'playlist') {
-            const url = i.options.getString('url')
-            await player.playlist(url)
-            await i.editReply({
-                embeds: [
-                    {
-                        title: `test`,
-                        description: 'bruh'
-                    }
-                ]
-            })
-        } else if (i.commandName == 'queue') {
             if (audioStatus === 'playing' || songQueue.length > 0) {
                 try {
                     // const voice = await joinVC(i)
@@ -327,16 +330,25 @@ client.on('interactionCreate', async (i) => {
                     })
                 }
             } else {
-                await i.editReply({
-                    embeds: [
-                        {
-                            title: 'play 1 song',
-                            description: 'bruh'
-                        }
-                    ]
-                })
+                audioStatus = 'idle'
+                const song = i.options.getString('song')
+                songQueue.unshift({ i, song })
+                isSkipping = true
+                playSongFn(songQueue[0].i, songQueue[0].song)
             }
-            //skip
+
+            //queue songs
+        } else if (i.commandName == 'playlist') {
+            const url = i.options.getString('url')
+            await player.playlist(url)
+            await i.editReply({
+                embeds: [
+                    {
+                        title: `test`,
+                        description: 'bruh'
+                    }
+                ]
+            })
         } else if (i.commandName == 'skip') {
             isSkipping = true
             await player.skip()
@@ -350,19 +362,7 @@ client.on('interactionCreate', async (i) => {
             isSkipping = false
             // leave
         } else if (i.commandName == 'leave') {
-            songQueue.length = 0
-            await player.leave()
-            connection = null
-            subscriber = null
-
-            await i.editReply({
-                embeds: [
-                    {
-                        title: 'Leaving...',
-                        description: 'Left the voice channel...'
-                    }
-                ]
-            })
+            await leaveFn(i)
         }
         //THE VOLUME COMMAND
         else if (i.commandName == 'volume') {
