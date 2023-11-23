@@ -230,15 +230,16 @@ const leaveFn = async (i) => {
     audioStatus = 'no vc'
     songQueue = []
     count = 0
-
-    await i.editReply({
-        embeds: [
-            {
-                title: 'Leaving...',
-                description: 'Left the voice channel...'
-            }
-        ]
-    })
+    if (i) {
+        await i.editReply({
+            embeds: [
+                {
+                    title: 'Leaving...',
+                    description: 'Left the voice channel...'
+                }
+            ]
+        })
+    }
 }
 setInterval(() => {
     if (isReady) {
@@ -249,7 +250,9 @@ setInterval(() => {
                     playSongFn(songQueue[0].i, songQueue[0].song)
                 }
                 count++
-                if (count === 300000) {
+                //300000
+                if (count === 10000) {
+                    leaveFn()
                 }
             }
         }
