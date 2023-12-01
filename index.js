@@ -249,13 +249,11 @@ setInterval(() => {
                     playSongFn(songQueue[0].i, songQueue[0].song)
                 }
                 count++
-                //300000
+
                 if (count === 100) {
                     leaveFn()
                 }
             }
-
-            console.log(count)
         }
     }
 }, 1500)
