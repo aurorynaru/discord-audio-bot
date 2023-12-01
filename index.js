@@ -89,7 +89,6 @@ let count = 0
 
 const joinVC = async (i) => {
     voice = i.member?.voice
-    console.log('voice', voice)
 
     if (!voice.channel.joinable) {
         await i.editReply({
@@ -251,10 +250,12 @@ setInterval(() => {
                 }
                 count++
                 //300000
-                if (count === 10000) {
+                if (count === 100) {
                     leaveFn()
                 }
             }
+
+            console.log(count)
         }
     }
 }, 1500)
